@@ -1,0 +1,50 @@
+{
+  "name": "gd-platform",
+  "version": "1.0.0",
+  "description": "Complete Group Discussion Platform with Video Conferencing, Real-time Chat, and Admin Panel",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd backend && npm run dev",
+    "client": "cd frontend && npm start",
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "start:prod": "concurrently \"cd backend && npm start\" \"cd frontend && serve -s build\"",
+    "test": "cd frontend && npm test",
+    "clean": "rm -rf node_modules backend/node_modules frontend/node_modules",
+    "reinstall": "npm run clean && npm run install-all"
+  },
+  "keywords": [
+    "group-discussion",
+    "video-conferencing",
+    "webrtc",
+    "socket.io",
+    "react",
+    "nodejs",
+    "mongodb",
+    "real-time-chat",
+    "admin-panel"
+  ],
+  "author": "GD Platform Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/gd-platform.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/gd-platform/issues"
+  },
+  "homepage": "https://github.com/your-username/gd-platform#readme",
+  "devDependencies": {
+    "concurrently": "^7.6.0",
+    "serve": "^14.2.1"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  },
+  "dependencies": {
+    "nodemailer": "^7.0.11"
+  }
+}
