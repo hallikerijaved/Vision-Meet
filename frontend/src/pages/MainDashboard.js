@@ -17,6 +17,7 @@ const MainDashboard = ({ user }) => {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 10000); // Refresh every 10 seconds
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchDashboardData = async () => {
@@ -51,12 +52,6 @@ const MainDashboard = ({ user }) => {
     } catch (error) {
       console.error('Error joining GD:', error);
     }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.reload();
   };
 
   return (

@@ -9,6 +9,7 @@ const MyGDs = ({ user }) => {
 
   useEffect(() => {
     fetchMyGDs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchMyGDs = async () => {
