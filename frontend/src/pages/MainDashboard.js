@@ -108,6 +108,12 @@ const MainDashboard = ({ user }) => {
               🚀 Start New GD
             </button>
             <button
+              onClick={() => navigate('/interview')}
+              style={{ padding: '1rem 2rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '1rem', fontWeight: 'bold' }}
+            >
+              💬 AI Mock Interview
+            </button>
+            <button
               onClick={() => navigate('/my-gds')}
               style={{ padding: '1rem 2rem', background: '#007bff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '1rem', fontWeight: 'bold' }}
             >

@@ -9,6 +9,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const gdRoutes = require('./routes/gd');
 const adminRoutes = require('./routes/admin');
+const realtimeInterviewRoutes = require('./routes/realtimeInterview');
 const GD = require('./models/GD');
 
 const app = express();
@@ -36,6 +37,7 @@ app.use(cookieParser());   // ⭐ REQUIRED for OTP login if using cookies
 app.use('/api/auth', authRoutes);
 app.use('/api/gd', gdRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/realtime-interview', realtimeInterviewRoutes);
 
 // Socket.IO events
 io.on('connection', (socket) => {

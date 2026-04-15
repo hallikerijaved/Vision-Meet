@@ -8,6 +8,7 @@ const Navigation = ({ user }) => {
   const navItems = [
     { path: '/dashboard', label: '🏠 Dashboard', icon: '🏠' },
     { path: '/create-gd', label: '🚀 Start GD', icon: '🚀' },
+    { path: '/interview', label: '💬 AI Interview', icon: '💬' },
     { path: '/browse-gds', label: '🔍 Browse', icon: '🔍' },
     { path: '/my-gds', label: '📋 My GDs', icon: '📋' }
   ];

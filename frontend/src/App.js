@@ -11,6 +11,7 @@ import GDRoom from './pages/GDRoom';
 import AdminPanel from './pages/AdminPanel';
 import JoinGD from './pages/JoinGD';
 import ResetPassword from './pages/ResetPassword';
+import RealTimeInterview from './pages/RealTimeInterview';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -38,6 +39,7 @@ function App() {
         <Route path="/create-gd" element={user && user.email !== 'admin@gd.com' ? <CreateGD user={user} /> : <Navigate to="/login" />} />
         <Route path="/browse-gds" element={user && user.email !== 'admin@gd.com' ? <BrowseGDs user={user} /> : <Navigate to="/login" />} />
         <Route path="/my-gds" element={user && user.email !== 'admin@gd.com' ? <MyGDs user={user} /> : <Navigate to="/login" />} />
+        <Route path="/interview" element={user && user.email !== 'admin@gd.com' ? <RealTimeInterview user={user} /> : <Navigate to="/login" />} />
         <Route path="/admin" element={user?.email === 'admin@gd.com' ? <AdminPanel user={user} /> : <Navigate to="/login" />} />
         <Route path="/room/:roomId" element={user ? <GDRoom user={user} /> : <Navigate to="/login" />} />
         <Route path="/join/:roomId" element={user ? <JoinGD user={user} /> : <Navigate to="/login" />} />
