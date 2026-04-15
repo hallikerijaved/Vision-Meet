@@ -15,18 +15,25 @@ const GD = require('./models/GD');
 const app = express();
 const server = http.createServer(app);
 
-// ⭐ Correct CORS setup for Socket.IO
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:3000",
+  "https://vision-meet-tau.vercel.app"
+].filter(Boolean);
+
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true
   }
 });
 
-// ⭐ FIX CORS FOR EXPRESS
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 
