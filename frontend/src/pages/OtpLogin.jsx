@@ -9,7 +9,7 @@ function OtpLogin() {
 
   const sendOtp = async () => {
     try {
-      await axios.post("http://localhost:5001/api/auth/send-otp", { email });
+      await axios.post(`${process.env.REACT_APP_API_URL || "http://localhost:5001/api"}/auth/send-otp`, { email });
       setShowOtp(true);
       setMsg("OTP sent to email!");
     } catch (err) {
@@ -19,7 +19,7 @@ function OtpLogin() {
 
   const verifyOtp = async () => {
     try {
-      const res = await axios.post("http://localhost:5001/api/auth/verify-otp", {
+      const res = await axios.post(`${process.env.REACT_APP_API_URL || "http://localhost:5001/api"}/auth/verify-otp`, {
         email,
         otp
       });

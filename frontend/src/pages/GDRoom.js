@@ -18,7 +18,7 @@ const GDRoom = ({ user }) => {
 
   useEffect(() => {
     // Initialize socket connection
-    socketRef.current = io('http://localhost:5001');
+    socketRef.current = io(process.env.REACT_APP_SOCKET_URL || 'http://localhost:5001');
     
     // Join room
     socketRef.current.emit('join-room', roomId);

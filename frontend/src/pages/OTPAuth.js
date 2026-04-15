@@ -11,7 +11,7 @@ const OTPAuth = ({ setUser }) => {
   const [loading, setLoading] = useState(false);
 
   const api = axios.create({
-    baseURL: 'http://localhost:5001/api'
+    baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5001/api'
   });
 
   const sendOTP = async () => {

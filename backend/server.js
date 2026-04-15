@@ -18,7 +18,7 @@ const server = http.createServer(app);
 // ⭐ Correct CORS setup for Socket.IO
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -26,7 +26,7 @@ const io = socketIo(server, {
 
 // ⭐ FIX CORS FOR EXPRESS
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: process.env.FRONTEND_URL || "http://localhost:3000",
   credentials: true
 }));
 
