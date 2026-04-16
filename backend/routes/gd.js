@@ -6,10 +6,13 @@ const router = express.Router();
 // Get all active GDs
 router.get('/', auth, async (req, res) => {
   try {
-    const gds = await GD.find({ isActive: true }).populate('moderator', 'name').populate('participants', 'name');
+    const gds = await GD.find({ isActive: true })
+      .populate('moderator', 'name')
+      .populate('participants', 'name');
     res.json(gds);
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Get GDs error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
@@ -43,20 +46,24 @@ router.post('/:id/join', auth, async (req, res) => {
     if (!gd || !gd.isActive) {
       return res.status(404).json({ message: 'GD not found or inactive' });
     }
-    
+
     if (gd.participants.length >= gd.maxParticipants) {
       return res.status(400).json({ message: 'GD is full' });
     }
-    
-    if (!gd.participants.includes(req.user._id)) {
+
+    // Use toString() comparison for ObjectId
+    const alreadyJoined = gd.participants.some(p => p.toString() === req.user._id.toString());
+    if (!alreadyJoined) {
       gd.participants.push(req.user._id);
       await gd.save();
     }
-    
-    await gd.populate(['moderator', 'participants'], 'name');
+
+    await gd.populate('moderator', 'name');
+    await gd.populate('participants', 'name');
     res.json(gd);
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Join GD error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
