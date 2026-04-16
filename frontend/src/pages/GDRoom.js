@@ -1,181 +1,159 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5001';
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const API_URL   = process.env.REACT_APP_API_URL    || 'http://localhost:5001/api';
 
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ]
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
 };
 
-const GDRoom = ({ user }) => {
-  const { roomId } = useParams();
-  const navigate = useNavigate();
+/* ── tiny helper: attach stream to <video> ── */
+const RemoteVideo = ({ stream, name }) => {
+  const ref = useRef();
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+  return (
+    <div style={tileStyle}>
+      <video ref={ref} autoPlay playsInline style={videoStyle} />
+      <span style={labelStyle}>{name}</span>
+    </div>
+  );
+};
 
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [isVideoOn, setIsVideoOn] = useState(true);
-  const [isAudioOn, setIsAudioOn] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [peers, setPeers] = useState({}); // { socketId: { stream, name } }
-  const [contributions, setContributions] = useState([]);
-  const [showEvaluation, setShowEvaluation] = useState(false);
-  const [evaluation, setEvaluation] = useState(null);
-  const [evaluating, setEvaluating] = useState(false);
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
+export default function GDRoom({ user }) {
+  const { roomId }  = useParams();
+  const navigate    = useNavigate();
 
-  const socketRef = useRef();
-  const localStreamRef = useRef();
-  const localVideoRef = useRef();
-  const screenStreamRef = useRef();
-  const peerConnectionsRef = useRef({}); // { socketId: RTCPeerConnection }
-  const recognitionRef = useRef(null);
-  const silenceTimerRef = useRef(null);
-  const transcriptRef = useRef('');
+  /* ── UI state ── */
+  const [messages,       setMessages]       = useState([]);
+  const [newMessage,     setNewMessage]     = useState('');
+  const [peers,          setPeers]          = useState({});   // { id: {stream,name} }
+  const [isVideoOn,      setIsVideoOn]      = useState(true);
+  const [isAudioOn,      setIsAudioOn]      = useState(true);
+  const [isScreenShare,  setIsScreenShare]  = useState(false);
+  const [isVoiceMode,    setIsVoiceMode]    = useState(false);
+  const [isListening,    setIsListening]    = useState(false);
+  const [transcript,     setTranscript]     = useState('');
+  const [contributions,  setContributions]  = useState([]);
+  const [evaluation,     setEvaluation]     = useState(null);
+  const [showEval,       setShowEval]       = useState(false);
+  const [evaluating,     setEvaluating]     = useState(false);
 
+  /* ── stable refs (never cause re-renders) ── */
+  const socketRef       = useRef(null);
+  const localVideoRef   = useRef(null);
+  const localStreamRef  = useRef(null);
+  const screenStreamRef = useRef(null);
+  const pcsRef          = useRef({});          // { socketId: RTCPeerConnection }
+  const recognitionRef  = useRef(null);
+  const silenceRef      = useRef(null);
+  const transcriptRef   = useRef('');
+
+  /* keep transcriptRef in sync */
   useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
 
-  const createPeerConnection = useCallback((socketId, remoteName) => {
+  /* ════════════════════════════════════════════
+     createPC — always reads localStreamRef.current
+     at call-time so tracks are never stale
+  ════════════════════════════════════════════ */
+  function createPC(socketId, remoteName) {
+    if (pcsRef.current[socketId]) return pcsRef.current[socketId];
+
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    // Add local tracks to peer connection
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => {
-        pc.addTrack(track, localStreamRef.current);
-      });
+    /* add local tracks NOW (stream is ready by this point) */
+    const stream = localStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
     }
 
-    // When remote stream arrives
-    pc.ontrack = (event) => {
-      const [remoteStream] = event.streams;
-      setPeers(prev => ({
-        ...prev,
-        [socketId]: { stream: remoteStream, name: remoteName || socketId }
-      }));
+    pc.ontrack = ({ streams: [remote] }) => {
+      setPeers(prev => ({ ...prev, [socketId]: { stream: remote, name: remoteName } }));
     };
 
-    // Send ICE candidates via socket
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current.emit('ice-candidate', {
-          to: socketId,
-          candidate: event.candidate
-        });
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        socketRef.current.emit('ice-candidate', { to: socketId, candidate });
       }
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        setPeers(prev => {
-          const updated = { ...prev };
-          delete updated[socketId];
-          return updated;
-        });
+      if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+        pc.close();
+        delete pcsRef.current[socketId];
+        setPeers(prev => { const n = { ...prev }; delete n[socketId]; return n; });
       }
     };
 
-    peerConnectionsRef.current[socketId] = pc;
+    pcsRef.current[socketId] = pc;
     return pc;
-  }, []);
+  }
 
+  /* ════════════════════════════════════════════
+     Main effect — runs once
+  ════════════════════════════════════════════ */
   useEffect(() => {
-    // Force WebSocket transport — critical for Render deployment
-    socketRef.current = io(SOCKET_URL, {
-      transports: ['websocket'],
-      upgrade: false
-    });
+    const socket = io(SOCKET_URL, { transports: ['websocket'], upgrade: false });
+    socketRef.current = socket;
 
-    const socket = socketRef.current;
-
-    const startMedia = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    /* 1. get media FIRST, then join room */
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(stream => {
         localStreamRef.current = stream;
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-
-        // Join room after media is ready
+      })
+      .catch(err => console.warn('Camera/mic denied:', err))
+      .finally(() => {
         socket.emit('join-room', { roomId, userName: user.name });
-      } catch (error) {
-        console.error('Media error:', error);
-        // Join without media
-        socket.emit('join-room', { roomId, userName: user.name });
-      }
-    };
-
-    startMedia();
-
-    // --- Socket events ---
-
-    // New user joined → we (existing user) create offer
-    socket.on('user-joined', async ({ socketId, userName }) => {
-      const pc = createPeerConnection(socketId, userName);
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', { to: socketId, offer, userName: user.name });
-      } catch (err) {
-        console.error('Offer error:', err);
-      }
-    });
-
-    // We received an offer → send answer
-    socket.on('offer', async ({ from, offer, userName: remoteName }) => {
-      const pc = createPeerConnection(from, remoteName);
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socket.emit('answer', { to: from, answer });
-      } catch (err) {
-        console.error('Answer error:', err);
-      }
-    });
-
-    // We received an answer
-    socket.on('answer', async ({ from, answer }) => {
-      const pc = peerConnectionsRef.current[from];
-      if (pc) {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        } catch (err) {
-          console.error('Set remote desc error:', err);
-        }
-      }
-    });
-
-    // ICE candidate from peer
-    socket.on('ice-candidate', async ({ from, candidate }) => {
-      const pc = peerConnectionsRef.current[from];
-      if (pc) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error('ICE error:', err);
-        }
-      }
-    });
-
-    // User left
-    socket.on('user-left', ({ socketId }) => {
-      if (peerConnectionsRef.current[socketId]) {
-        peerConnectionsRef.current[socketId].close();
-        delete peerConnectionsRef.current[socketId];
-      }
-      setPeers(prev => {
-        const updated = { ...prev };
-        delete updated[socketId];
-        return updated;
       });
+
+    /* ── signalling ── */
+
+    /* existing user → new joiner sends offer */
+    socket.on('user-joined', async ({ socketId, userName }) => {
+      const pc = createPC(socketId, userName);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('offer', { to: socketId, offer, userName: user.name });
     });
 
-    // Chat message
-    socket.on('receive-message', (data) => {
+    socket.on('offer', async ({ from, offer, userName: rName }) => {
+      const pc = createPC(from, rName);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit('answer', { to: from, answer });
+    });
+
+    socket.on('answer', async ({ from, answer }) => {
+      const pc = pcsRef.current[from];
+      if (pc && pc.signalingState !== 'stable') {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      }
+    });
+
+    socket.on('ice-candidate', async ({ from, candidate }) => {
+      const pc = pcsRef.current[from];
+      if (pc) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); }
+        catch (_) {}
+      }
+    });
+
+    socket.on('user-left', ({ socketId }) => {
+      pcsRef.current[socketId]?.close();
+      delete pcsRef.current[socketId];
+      setPeers(prev => { const n = { ...prev }; delete n[socketId]; return n; });
+    });
+
+    /* ── chat ── */
+    socket.on('receive-message', data => {
       setMessages(prev => [...prev, data]);
     });
 
@@ -185,318 +163,292 @@ const GDRoom = ({ user }) => {
     });
 
     return () => {
-      Object.values(peerConnectionsRef.current).forEach(pc => pc.close());
-      peerConnectionsRef.current = {};
+      Object.values(pcsRef.current).forEach(pc => pc.close());
+      pcsRef.current = {};
       localStreamRef.current?.getTracks().forEach(t => t.stop());
       screenStreamRef.current?.getTracks().forEach(t => t.stop());
       recognitionRef.current?.stop();
-      clearTimeout(silenceTimerRef.current);
+      clearTimeout(silenceRef.current);
       socket.disconnect();
     };
-  }, [roomId, user.name, navigate, createPeerConnection]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const sendMessage = (e) => {
+  /* ── chat send ── */
+  const sendMessage = e => {
     e.preventDefault();
     if (!newMessage.trim()) return;
-    const messageData = {
-      roomId,
-      message: newMessage,
-      sender: user.name,
-      timestamp: new Date().toLocaleTimeString()
-    };
-    socketRef.current.emit('send-message', messageData);
-    // Don't add locally — server broadcasts back to everyone including us
-    setContributions(prev => [...prev, newMessage]);
+    const msg = { roomId, message: newMessage, sender: user.name, timestamp: new Date().toLocaleTimeString() };
+    socketRef.current.emit('send-message', msg);
+    setContributions(p => [...p, newMessage]);
     setNewMessage('');
   };
 
-  const sendVoiceMessage = (text) => {
+  const sendVoiceMsg = text => {
     if (!text.trim()) return;
-    const messageData = { roomId, message: text, sender: user.name, timestamp: new Date().toLocaleTimeString() };
-    socketRef.current.emit('send-message', messageData);
-    setContributions(prev => [...prev, text]);
+    const msg = { roomId, message: text, sender: user.name, timestamp: new Date().toLocaleTimeString() };
+    socketRef.current.emit('send-message', msg);
+    setContributions(p => [...p, text]);
   };
 
+  /* ── media controls ── */
   const toggleVideo = () => {
-    const track = localStreamRef.current?.getVideoTracks()[0];
-    if (track) { track.enabled = !track.enabled; setIsVideoOn(track.enabled); }
+    const t = localStreamRef.current?.getVideoTracks()[0];
+    if (t) { t.enabled = !t.enabled; setIsVideoOn(t.enabled); }
   };
-
   const toggleAudio = () => {
-    const track = localStreamRef.current?.getAudioTracks()[0];
-    if (track) { track.enabled = !track.enabled; setIsAudioOn(track.enabled); }
+    const t = localStreamRef.current?.getAudioTracks()[0];
+    if (t) { t.enabled = !t.enabled; setIsAudioOn(t.enabled); }
   };
 
   const startScreenShare = async () => {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      screenStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      // Replace video track in all peer connections
-      const videoTrack = stream.getVideoTracks()[0];
-      Object.values(peerConnectionsRef.current).forEach(pc => {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) sender.replaceTrack(videoTrack);
+      const ss = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      screenStreamRef.current = ss;
+      if (localVideoRef.current) localVideoRef.current.srcObject = ss;
+      const vt = ss.getVideoTracks()[0];
+      Object.values(pcsRef.current).forEach(pc => {
+        const s = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (s) s.replaceTrack(vt);
       });
-      setIsScreenSharing(true);
-      stream.getVideoTracks()[0].onended = stopScreenShare;
-    } catch (err) { console.error('Screen share error:', err); }
+      setIsScreenShare(true);
+      vt.onended = stopScreenShare;
+    } catch (_) {}
   };
 
   const stopScreenShare = async () => {
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
-    setIsScreenSharing(false);
+    setIsScreenShare(false);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      const videoTrack = stream.getVideoTracks()[0];
-      Object.values(peerConnectionsRef.current).forEach(pc => {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) sender.replaceTrack(videoTrack);
+      const cam = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStreamRef.current = cam;
+      if (localVideoRef.current) localVideoRef.current.srcObject = cam;
+      const vt = cam.getVideoTracks()[0];
+      Object.values(pcsRef.current).forEach(pc => {
+        const s = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (s) s.replaceTrack(vt);
       });
-    } catch (err) { console.error('Camera restore error:', err); }
+    } catch (_) {}
   };
 
+  /* ── voice mode ── */
   const startVoiceMode = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { alert('Use Chrome or Edge for voice mode.'); return; }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-    recognitionRef.current = recognition;
-    recognition.onstart = () => { setIsListening(true); setIsVoiceMode(true); };
-    recognition.onresult = (event) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert('Use Chrome or Edge for voice mode.'); return; }
+    const r = new SR();
+    r.continuous = true; r.interimResults = true; r.lang = 'en-US';
+    recognitionRef.current = r;
+    r.onstart = () => { setIsVoiceMode(true); setIsListening(true); };
+    r.onresult = event => {
       let interim = '', final = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) final += t + ' ';
-        else interim += t;
+        if (event.results[i].isFinal) final += t + ' '; else interim += t;
       }
       if (final) {
-        setTranscript(prev => prev + final);
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          const text = transcriptRef.current.trim();
-          if (text) { sendVoiceMessage(text); setTranscript(''); }
+        setTranscript(p => p + final);
+        clearTimeout(silenceRef.current);
+        silenceRef.current = setTimeout(() => {
+          const txt = transcriptRef.current.trim();
+          if (txt) { sendVoiceMsg(txt); setTranscript(''); }
         }, 2000);
-      } else {
-        setTranscript(interim);
-      }
+      } else { setTranscript(interim); }
     };
-    recognition.onerror = (e) => { if (e.error !== 'no-speech') console.error('Speech error:', e.error); };
-    recognition.onend = () => { if (recognitionRef.current) recognition.start(); };
-    recognition.start();
+    r.onerror = e => { if (e.error !== 'no-speech') console.error(e.error); };
+    r.onend = () => { if (recognitionRef.current) r.start(); };
+    r.start();
   };
 
   const stopVoiceMode = () => {
-    setIsVoiceMode(false); setIsListening(false); setTranscript('');
     recognitionRef.current?.stop(); recognitionRef.current = null;
-    clearTimeout(silenceTimerRef.current);
+    clearTimeout(silenceRef.current);
+    setIsVoiceMode(false); setIsListening(false); setTranscript('');
   };
 
+  /* ── evaluation ── */
   const generateEvaluation = async () => {
-    if (contributions.length === 0) return;
+    if (!contributions.length) return;
     setEvaluating(true);
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`${API_URL}/evaluation/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ gdId: roomId, gdTitle: `GD Room ${roomId}`, messageCount: contributions.length, speakingTime: 0, contributions })
+        body: JSON.stringify({ gdId: roomId, gdTitle: `GD Room ${roomId}`, messageCount: contributions.length, speakingTime: 0, contributions }),
       });
       const data = await res.json();
-      if (data.success) { setEvaluation(data.evaluation); setShowEvaluation(true); }
-    } catch (err) { console.error('Evaluation error:', err); }
+      if (data.success) { setEvaluation(data.evaluation); setShowEval(true); }
+    } catch (_) {}
     setEvaluating(false);
   };
 
   const leaveRoom = async () => {
     stopVoiceMode();
-    socketRef.current.emit('leave-room', roomId);
-    if (contributions.length > 0) await generateEvaluation();
+    socketRef.current?.emit('leave-room', roomId);
+    if (contributions.length) await generateEvaluation();
     try {
       const { gd } = await import('../utils/api');
-      const response = await gd.getAll();
-      const currentGD = response.data.find(g => g.roomId === roomId);
-      if (currentGD) await gd.leave(currentGD._id);
-    } catch (err) { console.error('Leave error:', err); }
+      const res = await gd.getAll();
+      const cur = res.data.find(g => g.roomId === roomId);
+      if (cur) await gd.leave(cur._id);
+    } catch (_) {}
     localStreamRef.current?.getTracks().forEach(t => t.stop());
-    if (!showEvaluation) navigate('/dashboard');
+    if (!showEval) navigate('/dashboard');
   };
 
-  const scoreColor = (s) => s >= 75 ? '#28a745' : s >= 60 ? '#ffc107' : '#dc3545';
+  const sc = s => s >= 75 ? '#28a745' : s >= 60 ? '#ffc107' : '#dc3545';
   const peerList = Object.entries(peers);
+  const total = peerList.length + 1;
+  const cols = total === 1 ? '1fr' : total === 2 ? '1fr 1fr' : total <= 4 ? '1fr 1fr' : 'repeat(3, 1fr)';
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#1a1a1a' }}>
 
-      {/* Evaluation Modal */}
-      {showEvaluation && evaluation && (
+      {/* ── Evaluation modal ── */}
+      {showEval && evaluation && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', maxWidth: '560px', width: '90%', maxHeight: '85vh', overflowY: 'auto' }}>
-            <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>🎯 Your Communication Score</h2>
-            <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '4rem', fontWeight: 'bold', color: scoreColor(evaluation.scores.totalScore) }}>
-                {evaluation.scores.totalScore}<span style={{ fontSize: '1.5rem', color: '#666' }}>/100</span>
-              </div>
+          <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', maxWidth: '540px', width: '90%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <h2 style={{ textAlign: 'center' }}>🎯 Communication Score</h2>
+            <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+              <span style={{ fontSize: '3.5rem', fontWeight: 'bold', color: sc(evaluation.scores.totalScore) }}>{evaluation.scores.totalScore}</span>
+              <span style={{ color: '#666' }}>/100</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.5rem' }}>
-              {[['Clarity', evaluation.scores.clarity, '#e3f2fd'], ['Relevance', evaluation.scores.relevance, '#e8f5e9'], ['Engagement', evaluation.scores.engagement, '#fff3e0'], ['Professionalism', evaluation.scores.professionalism, '#fce4ec']].map(([label, val, bg]) => (
-                <div key={label} style={{ padding: '0.75rem', background: bg, borderRadius: '6px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>{label}</div>
-                  <div style={{ fontWeight: 'bold' }}>{val}/25</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
+              {[['Clarity', evaluation.scores.clarity, '#e3f2fd'], ['Relevance', evaluation.scores.relevance, '#e8f5e9'], ['Engagement', evaluation.scores.engagement, '#fff3e0'], ['Professionalism', evaluation.scores.professionalism, '#fce4ec']].map(([l, v, bg]) => (
+                <div key={l} style={{ padding: '0.6rem', background: bg, borderRadius: '6px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#666' }}>{l}</div>
+                  <div style={{ fontWeight: 'bold' }}>{v}/25</div>
                 </div>
               ))}
             </div>
-            <p style={{ background: '#f8f9fa', padding: '1rem', borderRadius: '6px', fontSize: '0.9rem' }}>{evaluation.feedback}</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
-              <div><strong>✅ Strengths</strong><ul style={{ paddingLeft: '1.2rem', marginTop: '0.5rem' }}>{evaluation.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul></div>
-              <div><strong>📈 Improve</strong><ul style={{ paddingLeft: '1.2rem', marginTop: '0.5rem' }}>{evaluation.improvements.map((s, i) => <li key={i}>{s}</li>)}</ul></div>
-            </div>
+            <p style={{ background: '#f8f9fa', padding: '0.75rem', borderRadius: '6px', fontSize: '0.9rem' }}>{evaluation.feedback}</p>
             {evaluation.blockchainCertificate && (
-              <div style={{ background: '#d4edda', padding: '1rem', borderRadius: '6px', marginBottom: '1rem', border: '1px solid #c3e6cb' }}>
-                <strong>🏆 Blockchain Certificate Issued!</strong>
-                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#555' }}>ID: {evaluation.blockchainCertificate.certificateId}</p>
+              <div style={{ background: '#d4edda', padding: '0.75rem', borderRadius: '6px', marginTop: '0.75rem', border: '1px solid #c3e6cb' }}>
+                <strong>🏆 Certificate Issued!</strong>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#555' }}>ID: {evaluation.blockchainCertificate.certificateId}</p>
               </div>
             )}
-            <button onClick={() => { setShowEvaluation(false); navigate('/dashboard'); }}
-              style={{ width: '100%', padding: '0.75rem', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
-              Close & Return to Dashboard
+            <button onClick={() => { setShowEval(false); navigate('/dashboard'); }}
+              style={{ width: '100%', marginTop: '1rem', padding: '0.75rem', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+              Close & Go to Dashboard
             </button>
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <header style={{ background: '#333', padding: '0.75rem 1rem', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* ── Header ── */}
+      <header style={{ background: '#222', padding: '0.6rem 1rem', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>GD Room: {roomId}</h2>
-          <span style={{ fontSize: '0.8rem', color: '#aaa' }}>{peerList.length + 1} participant{peerList.length !== 0 ? 's' : ''}</span>
+          <span style={{ fontWeight: 'bold' }}>GD Room: {roomId}</span>
+          <span style={{ marginLeft: '1rem', fontSize: '0.8rem', color: '#aaa' }}>{total} participant{total > 1 ? 's' : ''}</span>
         </div>
         <button onClick={leaveRoom} disabled={evaluating}
-          style={{ padding: '0.5rem 1rem', background: evaluating ? '#6c757d' : '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: evaluating ? 'not-allowed' : 'pointer' }}>
-          {evaluating ? 'Evaluating...' : 'Leave Room'}
+          style={{ padding: '0.4rem 1rem', background: evaluating ? '#555' : '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+          {evaluating ? 'Evaluating…' : 'Leave Room'}
         </button>
       </header>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Video Grid */}
-        <div style={{ flex: 2, padding: '1rem', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-          {/* Video tiles */}
-          <div style={{
-            flex: 1,
-            display: 'grid',
-            gridTemplateColumns: peerList.length === 0 ? '1fr' : peerList.length === 1 ? '1fr 1fr' : 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: '0.75rem',
-            marginBottom: '0.75rem',
-            overflow: 'auto'
-          }}>
-            {/* Local video */}
-            <div style={{ background: '#2a2a2a', borderRadius: '8px', position: 'relative', minHeight: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <video ref={localVideoRef} autoPlay muted playsInline
-                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px', background: '#000' }} />
-              <div style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>
-                {user.name} (You)
-              </div>
+        {/* ── Video grid ── */}
+        <div style={{ flex: 1, padding: '0.75rem', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: cols, gap: '0.6rem', overflow: 'auto', marginBottom: '0.6rem' }}>
+
+            {/* local */}
+            <div style={tileStyle}>
+              <video ref={localVideoRef} autoPlay muted playsInline style={videoStyle} />
+              <span style={labelStyle}>{user.name} (You)</span>
             </div>
 
-            {/* Remote videos */}
-            {peerList.map(([socketId, { stream, name }]) => (
-              <RemoteVideo key={socketId} stream={stream} name={name} />
+            {/* remote peers */}
+            {peerList.map(([id, { stream, name }]) => (
+              <RemoteVideo key={id} stream={stream} name={name} />
             ))}
           </div>
 
-          {/* Controls */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-            <button onClick={toggleVideo} style={{ padding: '0.6rem 1.2rem', background: isVideoOn ? '#28a745' : '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-              {isVideoOn ? '📹 Video On' : '📹 Video Off'}
-            </button>
-            <button onClick={toggleAudio} style={{ padding: '0.6rem 1.2rem', background: isAudioOn ? '#28a745' : '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-              {isAudioOn ? '🎤 Mic On' : '🎤 Mic Off'}
-            </button>
-            <button onClick={isScreenSharing ? stopScreenShare : startScreenShare} style={{ padding: '0.6rem 1.2rem', background: isScreenSharing ? '#dc3545' : '#17a2b8', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-              {isScreenSharing ? '🖥️ Stop Share' : '🖥️ Share Screen'}
-            </button>
-            <button onClick={isVoiceMode ? stopVoiceMode : startVoiceMode} style={{ padding: '0.6rem 1.2rem', background: isVoiceMode ? '#dc3545' : '#6f42c1', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-              {isVoiceMode ? '🔴 Stop Voice' : '🎙️ Voice Mode'}
-            </button>
+          {/* controls */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+            {[
+              [toggleVideo,  isVideoOn  ? '📹 Video On'    : '📹 Video Off',   isVideoOn  ? '#28a745' : '#dc3545'],
+              [toggleAudio,  isAudioOn  ? '🎤 Mic On'      : '🎤 Mic Off',     isAudioOn  ? '#28a745' : '#dc3545'],
+              [isScreenShare ? stopScreenShare : startScreenShare, isScreenShare ? '🖥️ Stop Share' : '🖥️ Share Screen', isScreenShare ? '#dc3545' : '#17a2b8'],
+              [isVoiceMode   ? stopVoiceMode   : startVoiceMode,   isVoiceMode   ? '🔴 Stop Voice'  : '🎙️ Voice Mode',  isVoiceMode   ? '#dc3545' : '#6f42c1'],
+            ].map(([fn, label, bg]) => (
+              <button key={label} onClick={fn} style={{ padding: '0.5rem 1rem', background: bg, color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                {label}
+              </button>
+            ))}
           </div>
 
-          <div style={{ textAlign: 'center', padding: '0.5rem', background: '#f8f9fa', borderRadius: '4px', fontSize: '0.8rem' }}>
-            <strong>Share:</strong>{' '}
-            <span style={{ fontFamily: 'monospace' }}>{window.location.origin}/join/{roomId}</span>{' '}
+          <div style={{ textAlign: 'center', fontSize: '0.78rem', color: '#ccc' }}>
+            Share: <span style={{ fontFamily: 'monospace' }}>{window.location.origin}/join/{roomId}</span>
             <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/join/${roomId}`)}
-              style={{ marginLeft: '0.5rem', padding: '0.2rem 0.6rem', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
-              📋 Copy
+              style={{ marginLeft: '0.5rem', padding: '0.15rem 0.5rem', background: '#007bff', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              Copy
             </button>
           </div>
         </div>
 
-        {/* Chat */}
-        <div style={{ width: '300px', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '1rem', borderBottom: '1px solid #dee2e6' }}>
-            <h3 style={{ margin: 0 }}>Chat</h3>
+        {/* ── Chat ── */}
+        <div style={{ width: '280px', background: '#f8f9fa', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #ddd' }}>
+          <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #dee2e6', fontWeight: 'bold' }}>
+            💬 Chat
             {isVoiceMode && (
-              <div style={{ marginTop: '0.5rem', padding: '0.4rem', background: isListening ? '#d4edda' : '#fff3cd', borderRadius: '4px', fontSize: '0.8rem', textAlign: 'center' }}>
-                {isListening ? '🎙️ Listening...' : '⏸️ Paused'}
-              </div>
+              <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: isListening ? '#28a745' : '#ffc107' }}>
+                {isListening ? '● Listening' : '⏸ Paused'}
+              </span>
             )}
           </div>
 
-          <div style={{ flex: 1, padding: '1rem', overflowY: 'auto' }}>
+          <div style={{ flex: 1, padding: '0.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            {messages.length === 0 && (
+              <div style={{ color: '#aaa', fontSize: '0.85rem', textAlign: 'center', marginTop: '1rem' }}>No messages yet</div>
+            )}
             {isVoiceMode && transcript && (
-              <div style={{ marginBottom: '0.5rem', padding: '0.75rem', background: '#e7f3ff', border: '2px dashed #007bff', borderRadius: '4px', fontSize: '0.9rem' }}>
-                <div style={{ fontWeight: 'bold', color: '#007bff', marginBottom: '0.25rem' }}>🎙️ Speaking...</div>
+              <div style={{ padding: '0.5rem', background: '#e7f3ff', border: '2px dashed #007bff', borderRadius: '4px', fontSize: '0.85rem' }}>
+                <div style={{ fontWeight: 'bold', color: '#007bff', fontSize: '0.75rem' }}>🎙️ Speaking…</div>
                 <div style={{ fontStyle: 'italic' }}>{transcript}</div>
               </div>
             )}
-            {messages.map((msg, i) => (
-              <div key={i} style={{ marginBottom: '0.5rem', padding: '0.5rem', background: 'white', borderRadius: '4px', fontSize: '0.9rem' }}>
-                <div style={{ fontWeight: 'bold', color: msg.sender === user.name ? '#007bff' : '#28a745' }}>{msg.sender}</div>
-                <div>{msg.message}</div>
-                <div style={{ fontSize: '0.7rem', color: '#999', marginTop: '0.2rem' }}>{msg.timestamp}</div>
-              </div>
-            ))}
+            {messages.map((msg, i) => {
+              const isMe = msg.sender === user.name;
+              return (
+                <div key={i} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#888', marginBottom: '2px', textAlign: isMe ? 'right' : 'left' }}>{msg.sender}</div>
+                  <div style={{ padding: '0.4rem 0.7rem', background: isMe ? '#007bff' : 'white', color: isMe ? 'white' : '#333', borderRadius: isMe ? '12px 12px 2px 12px' : '12px 12px 12px 2px', fontSize: '0.88rem', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
+                    {msg.message}
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: '#bbb', marginTop: '2px', textAlign: isMe ? 'right' : 'left' }}>{msg.timestamp}</div>
+                </div>
+              );
+            })}
           </div>
 
-          <form onSubmit={sendMessage} style={{ padding: '1rem', borderTop: '1px solid #dee2e6', display: 'flex', gap: '0.5rem' }}>
-            <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={isVoiceMode ? 'Voice mode active...' : 'Type a message...'}
+          <form onSubmit={sendMessage} style={{ padding: '0.75rem', borderTop: '1px solid #dee2e6', display: 'flex', gap: '0.4rem' }}>
+            <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)}
+              placeholder={isVoiceMode ? 'Voice mode on…' : 'Type a message…'}
               disabled={isVoiceMode}
-              style={{ flex: 1, padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px', opacity: isVoiceMode ? 0.5 : 1 }} />
+              style={{ flex: 1, padding: '0.5rem', border: '1px solid #ddd', borderRadius: '20px', fontSize: '0.88rem', outline: 'none' }} />
             <button type="submit" disabled={isVoiceMode}
-              style={{ padding: '0.5rem 0.75rem', background: isVoiceMode ? '#6c757d' : '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: isVoiceMode ? 'not-allowed' : 'pointer' }}>
-              Send
+              style={{ padding: '0.5rem 0.9rem', background: '#007bff', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '0.85rem' }}>
+              ➤
             </button>
           </form>
         </div>
       </div>
     </div>
   );
+}
+
+/* ── shared styles ── */
+const tileStyle = {
+  background: '#2a2a2a', borderRadius: '8px', position: 'relative',
+  minHeight: '180px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center'
 };
-
-// Separate component to attach stream to video element
-const RemoteVideo = ({ stream, name }) => {
-  const videoRef = useRef();
-  useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
-
-  return (
-    <div style={{ background: '#2a2a2a', borderRadius: '8px', position: 'relative', minHeight: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <video ref={videoRef} autoPlay playsInline
-        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px', background: '#000' }} />
-      <div style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>
-        {name}
-      </div>
-    </div>
-  );
+const videoStyle = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
+const labelStyle = {
+  position: 'absolute', bottom: '6px', left: '8px',
+  background: 'rgba(0,0,0,0.6)', color: 'white',
+  padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem'
 };
-
-export default GDRoom;
