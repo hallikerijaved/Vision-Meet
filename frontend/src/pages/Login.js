@@ -73,7 +73,7 @@ const Login = ({ setUser }) => {
     setLoading(true);
     setError('');
     try {
-      const response = await auth.forgotPassword(formData.email);
+      await auth.forgotPassword(formData.email);
       setMessage(`Reset link sent! Check your email.`);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send reset link');
