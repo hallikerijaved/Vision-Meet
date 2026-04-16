@@ -68,16 +68,34 @@ app.use('/api/blockchain', blockchainRoutes);
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  socket.on('join-room', (roomId) => {
+  socket.on('join-room', ({ roomId, userName }) => {
     socket.join(roomId);
-    socket.to(roomId).emit('user-joined', socket.id);
+    socket.data.userName = userName;
+    socket.data.roomId = roomId;
+    // Notify existing users in room about new user
+    socket.to(roomId).emit('user-joined', { socketId: socket.id, userName });
+    console.log(`${userName} joined room ${roomId}`);
+  });
+
+  socket.on('offer', ({ to, offer, userName }) => {
+    socket.to(to).emit('offer', { from: socket.id, offer, userName });
+  });
+
+  socket.on('answer', ({ to, answer }) => {
+    socket.to(to).emit('answer', { from: socket.id, answer });
+  });
+
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    socket.to(to).emit('ice-candidate', { from: socket.id, candidate });
   });
 
   socket.on('send-message', (data) => {
-    socket.to(data.roomId).emit('receive-message', data);
+    // Broadcast to everyone in room INCLUDING sender for consistency
+    io.to(data.roomId).emit('receive-message', data);
   });
 
   socket.on('leave-room', async (roomId) => {
+    socket.to(roomId).emit('user-left', { socketId: socket.id });
     socket.leave(roomId);
     const roomSockets = await io.in(roomId).fetchSockets();
     if (roomSockets.length === 0) {
@@ -91,19 +109,15 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', async () => {
     console.log('User disconnected:', socket.id);
-    
-    const rooms = socket.rooms;
-    for (const roomId of rooms) {
-      if (roomId !== socket.id) {
-        const roomSockets = await io.in(roomId).fetchSockets();
-        if (roomSockets.length === 0) {
-          const GD = require('./models/GD');
-          await GD.findOneAndUpdate(
-            { roomId: roomId, isActive: true },
-            { isActive: false }
-          );
-          console.log(`Auto-closed empty GD session: ${roomId}`);
-        }
+    const roomId = socket.data.roomId;
+    if (roomId) {
+      socket.to(roomId).emit('user-left', { socketId: socket.id });
+      const roomSockets = await io.in(roomId).fetchSockets();
+      if (roomSockets.length === 0) {
+        await GD.findOneAndUpdate(
+          { roomId, isActive: true },
+          { isActive: false }
+        );
       }
     }
   });
