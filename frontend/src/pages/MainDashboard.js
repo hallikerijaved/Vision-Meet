@@ -15,8 +15,12 @@ const MainDashboard = ({ user }) => {
 
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 10000); // Refresh every 10 seconds
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchDashboardData, 10000);
+    // Keep Render backend alive (free tier sleeps after 15min)
+    const keepAlive = setInterval(() => {
+      fetch(`${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5001'}/health`).catch(() => {});
+    }, 4 * 60 * 1000); // ping every 4 minutes
+    return () => { clearInterval(interval); clearInterval(keepAlive); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

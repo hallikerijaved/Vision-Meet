@@ -19,21 +19,32 @@ const server = http.createServer(app);
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  "http://localhost:3000",
-  "https://vision-meet-tau.vercel.app"
+  'http://localhost:3000',
+  'https://vision-meet-tau.vercel.app'
 ].filter(Boolean);
 
 const io = socketIo(server, {
   cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (
+        allowedOrigins.includes(origin) ||
+        /\.vercel\.app$/.test(origin)
+      ) return callback(null, true);
+      callback(new Error('Not allowed by CORS'));
+    },
+    methods: ['GET', 'POST'],
     credentials: true
   }
 });
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin) return callback(null, true);
+    if (
+      allowedOrigins.includes(origin) ||
+      /\.vercel\.app$/.test(origin)
+    ) return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true
@@ -41,6 +52,9 @@ app.use(cors({
 
 app.use(express.json());
 app.use(cookieParser());   // ⭐ REQUIRED for OTP login if using cookies
+
+// Health check - keeps Render from sleeping
+app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Routes
 app.use('/api/auth', authRoutes);
