@@ -22,7 +22,7 @@ function Certificates({ user }) {
       const res = await axios.get(`${API_URL}/blockchain/my-certificates`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setCertificates(res.data.certificates);
+      setCertificates(Array.isArray(res.data) ? res.data : []);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching certificates:', error);

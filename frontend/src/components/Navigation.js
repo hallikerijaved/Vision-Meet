@@ -6,11 +6,13 @@ const Navigation = ({ user }) => {
   const location = useLocation();
 
   const navItems = [
-    { path: '/dashboard', label: '🏠 Dashboard', icon: '🏠' },
-    { path: '/create-gd', label: '🚀 Start GD', icon: '🚀' },
-    { path: '/interview', label: '💬 AI Interview', icon: '💬' },
-    { path: '/browse-gds', label: '🔍 Browse', icon: '🔍' },
-    { path: '/my-gds', label: '📋 My GDs', icon: '📋' }
+    { path: '/dashboard', label: '🏠 Dashboard' },
+    { path: '/create-gd', label: '🚀 Start GD' },
+    { path: '/interview', label: '💬 AI Interview' },
+    { path: '/browse-gds', label: '🔍 Browse' },
+    { path: '/my-gds', label: '📋 My GDs' },
+    { path: '/evaluations', label: '📊 Evaluations' },
+    { path: '/certificates', label: '🏆 Certificates' }
   ];
 
   const logout = () => {

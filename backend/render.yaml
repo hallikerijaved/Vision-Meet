@@ -1,10 +1,24 @@
 services:
   - type: web
-    name: gd-backend
+    name: vision-meet
     env: node
+    rootDir: backend
     buildCommand: npm install
     startCommand: node server.js
-    rootDir: .
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 5001
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        value: https://vision-meet-tau.vercel.app

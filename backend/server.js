@@ -10,6 +10,8 @@ const authRoutes = require('./routes/auth');
 const gdRoutes = require('./routes/gd');
 const adminRoutes = require('./routes/admin');
 const realtimeInterviewRoutes = require('./routes/realtimeInterview');
+const evaluationRoutes = require('./routes/evaluation');
+const blockchainRoutes = require('./routes/blockchain');
 const GD = require('./models/GD');
 
 const app = express();
@@ -45,6 +47,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/gd', gdRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/realtime-interview', realtimeInterviewRoutes);
+app.use('/api/evaluation', evaluationRoutes);
+app.use('/api/blockchain', blockchainRoutes);
 
 // Socket.IO events
 io.on('connection', (socket) => {

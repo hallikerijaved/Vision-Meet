@@ -12,6 +12,8 @@ import AdminPanel from './pages/AdminPanel';
 import JoinGD from './pages/JoinGD';
 import ResetPassword from './pages/ResetPassword';
 import RealTimeInterview from './pages/RealTimeInterview';
+import Evaluations from './pages/Evaluations';
+import Certificates from './pages/Certificates';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -40,6 +42,8 @@ function App() {
         <Route path="/browse-gds" element={user && user.email !== 'admin@gd.com' ? <BrowseGDs user={user} /> : <Navigate to="/login" />} />
         <Route path="/my-gds" element={user && user.email !== 'admin@gd.com' ? <MyGDs user={user} /> : <Navigate to="/login" />} />
         <Route path="/interview" element={user && user.email !== 'admin@gd.com' ? <RealTimeInterview user={user} /> : <Navigate to="/login" />} />
+        <Route path="/evaluations" element={user && user.email !== 'admin@gd.com' ? <Evaluations user={user} /> : <Navigate to="/login" />} />
+        <Route path="/certificates" element={user && user.email !== 'admin@gd.com' ? <Certificates user={user} /> : <Navigate to="/login" />} />
         <Route path="/admin" element={user?.email === 'admin@gd.com' ? <AdminPanel user={user} /> : <Navigate to="/login" />} />
         <Route path="/room/:roomId" element={user ? <GDRoom user={user} /> : <Navigate to="/login" />} />
         <Route path="/join/:roomId" element={user ? <JoinGD user={user} /> : <Navigate to="/login" />} />
