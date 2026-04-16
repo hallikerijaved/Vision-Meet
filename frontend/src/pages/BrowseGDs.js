@@ -22,12 +22,18 @@ const BrowseGDs = ({ user }) => {
     }
   };
 
+  const [joiningId, setJoiningId] = useState(null);
+  const [joinError, setJoinError] = useState('');
+
   const handleJoinGD = async (gdId, roomId) => {
+    setJoiningId(gdId);
+    setJoinError('');
     try {
       await gd.join(gdId);
       navigate(`/room/${roomId}`);
     } catch (error) {
-      console.error('Error joining GD:', error);
+      setJoinError(error.response?.data?.message || 'Failed to join. Please try again.');
+      setJoiningId(null);
     }
   };
 
@@ -59,6 +65,11 @@ const BrowseGDs = ({ user }) => {
               ← Back to Dashboard
             </button>
           </div>
+          {joinError && (
+            <div style={{ background: '#f8d7da', color: '#721c24', padding: '0.75rem 1rem', borderRadius: '6px', marginBottom: '1rem', fontSize: '0.9rem' }}>
+              ❌ {joinError}
+            </div>
+          )}
           
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
@@ -130,19 +141,19 @@ const BrowseGDs = ({ user }) => {
                       <>
                         <button
                           onClick={() => handleJoinGD(gdItem._id, gdItem.roomId)}
-                          disabled={gdItem.participants.length >= gdItem.maxParticipants}
+                          disabled={gdItem.participants.length >= gdItem.maxParticipants || joiningId === gdItem._id}
                           style={{
                             padding: '0.75rem 1.5rem',
-                            background: gdItem.participants.length >= gdItem.maxParticipants ? '#ccc' : '#007bff',
+                            background: gdItem.participants.length >= gdItem.maxParticipants ? '#ccc' : joiningId === gdItem._id ? '#6c757d' : '#007bff',
                             color: 'white',
                             border: 'none',
                             borderRadius: '8px',
-                            cursor: gdItem.participants.length >= gdItem.maxParticipants ? 'not-allowed' : 'pointer',
+                            cursor: (gdItem.participants.length >= gdItem.maxParticipants || joiningId === gdItem._id) ? 'not-allowed' : 'pointer',
                             fontWeight: 'bold',
                             minWidth: '120px'
                           }}
                         >
-                          {gdItem.participants.length >= gdItem.maxParticipants ? 'Full' : 'Join Now'}
+                          {joiningId === gdItem._id ? 'Joining...' : gdItem.participants.length >= gdItem.maxParticipants ? 'Full' : 'Join Now'}
                         </button>
                         
                         <button

@@ -45,12 +45,18 @@ const MainDashboard = ({ user }) => {
     }
   };
 
+  const [joiningId, setJoiningId] = useState(null);
+  const [joinError, setJoinError] = useState('');
+
   const handleJoinGD = async (gdId, roomId) => {
+    setJoiningId(gdId);
+    setJoinError('');
     try {
       await gd.join(gdId);
       navigate(`/room/${roomId}`);
     } catch (error) {
-      console.error('Error joining GD:', error);
+      setJoinError(error.response?.data?.message || 'Failed to join. Please try again.');
+      setJoiningId(null);
     }
   };
 
@@ -127,6 +133,11 @@ const MainDashboard = ({ user }) => {
         <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
             <h2 style={{ margin: 0, color: '#333' }}>🔥 Trending Discussions</h2>
+            {joinError && (
+              <div style={{ background: '#f8d7da', color: '#721c24', padding: '0.75rem 1rem', borderRadius: '6px', marginTop: '0.75rem', fontSize: '0.9rem' }}>
+                ❌ {joinError}
+              </div>
+            )}
             <span style={{ background: '#e9ecef', padding: '0.5rem 1rem', borderRadius: '20px', fontSize: '0.9rem', color: '#666' }}>
               {stats.activeGDs} Active Now
             </span>
@@ -170,18 +181,18 @@ const MainDashboard = ({ user }) => {
                     <div style={{ display: 'flex', gap: '0.5rem', marginLeft: '1rem' }}>
                       <button
                         onClick={() => handleJoinGD(gdItem._id, gdItem.roomId)}
-                        disabled={gdItem.participants.length >= gdItem.maxParticipants}
+                        disabled={gdItem.participants.length >= gdItem.maxParticipants || joiningId === gdItem._id}
                         style={{
                           padding: '0.75rem 1.5rem',
-                          background: gdItem.participants.length >= gdItem.maxParticipants ? '#ccc' : '#007bff',
+                          background: gdItem.participants.length >= gdItem.maxParticipants ? '#ccc' : joiningId === gdItem._id ? '#6c757d' : '#007bff',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',
-                          cursor: gdItem.participants.length >= gdItem.maxParticipants ? 'not-allowed' : 'pointer',
+                          cursor: (gdItem.participants.length >= gdItem.maxParticipants || joiningId === gdItem._id) ? 'not-allowed' : 'pointer',
                           fontWeight: 'bold'
                         }}
                       >
-                        {gdItem.participants.length >= gdItem.maxParticipants ? 'Full' : 'Join Now'}
+                        {joiningId === gdItem._id ? 'Joining...' : gdItem.participants.length >= gdItem.maxParticipants ? 'Full' : 'Join Now'}
                       </button>
                       <button
                         onClick={() => {
