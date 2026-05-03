@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: vision-meet
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: INTERVIEW_MODEL
+        value: gemini-flash-latest
+      - key: FRONTEND_URL
+        value: https://vision-meet-tau.vercel.app
+      - key: RENDER
+        value: true
+      - key: BREVO_API_KEY
+        sync: false

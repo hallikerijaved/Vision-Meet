@@ -1,0 +1,38 @@
+[
+  {
+    "title": "Technology Trends 2024",
+    "description": "Discuss the latest technology trends and their impact on society",
+    "topic": "Technology",
+    "duration": 30,
+    "maxParticipants": 8,
+    "moderator": {"$oid": "507f1f77bcf86cd799439011"},
+    "participants": [],
+    "isActive": false,
+    "createdAt": {"$date": "2024-01-01T10:00:00.000Z"},
+    "updatedAt": {"$date": "2024-01-01T10:00:00.000Z"}
+  },
+  {
+    "title": "Climate Change Solutions",
+    "description": "Brainstorm innovative solutions for climate change",
+    "topic": "Environment",
+    "duration": 45,
+    "maxParticipants": 10,
+    "moderator": {"$oid": "507f1f77bcf86cd799439012"},
+    "participants": [],
+    "isActive": true,
+    "createdAt": {"$date": "2024-01-02T14:00:00.000Z"},
+    "updatedAt": {"$date": "2024-01-02T14:00:00.000Z"}
+  },
+  {
+    "title": "Future of Remote Work",
+    "description": "Explore the future of remote work and hybrid models",
+    "topic": "Business",
+    "duration": 60,
+    "maxParticipants": 12,
+    "moderator": {"$oid": "507f1f77bcf86cd799439013"},
+    "participants": [{"$oid": "507f1f77bcf86cd799439012"}],
+    "isActive": true,
+    "createdAt": {"$date": "2024-01-03T16:00:00.000Z"},
+    "updatedAt": {"$date": "2024-01-03T16:00:00.000Z"}
+  }
+]
