@@ -12,6 +12,7 @@ const adminRoutes = require('./routes/admin');
 const realtimeInterviewRoutes = require('./routes/realtimeInterview');
 const evaluationRoutes = require('./routes/evaluation');
 const blockchainRoutes = require('./routes/blockchain');
+const profileRoutes = require('./routes/profile');
 const GD = require('./models/GD');
 
 const app = express();
@@ -64,6 +65,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/realtime-interview', realtimeInterviewRoutes);
 app.use('/api/evaluation', evaluationRoutes);
 app.use('/api/blockchain', blockchainRoutes);
+app.use('/api/profile', profileRoutes);
 
 // Socket.IO events
 io.on('connection', (socket) => {
