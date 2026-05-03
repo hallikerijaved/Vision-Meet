@@ -131,7 +131,7 @@ router.post("/verify-otp", async (req, res) => {
     return res.json({
       message: "Registration successful",
       token,
-      user: { id: user._id, name: user.name, email: user.email }
+      user: { id: user._id, name: user.name, email: user.email, profilePicture: user.profilePicture || '' }
     });
   }
 
@@ -144,7 +144,7 @@ router.post("/verify-otp", async (req, res) => {
   return res.json({
     message: "Login successful",
     token,
-    user: { id: user._id, name: user.name, email: user.email }
+    user: { id: user._id, name: user.name, email: user.email, profilePicture: user.profilePicture || '' }
   });
 });
 
@@ -180,7 +180,7 @@ router.post('/register', async (req, res) => {
     await OTP.deleteOne({ email, otp });
 
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
-    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email } });
+    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, profilePicture: user.profilePicture || '' } });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -197,7 +197,7 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, profilePicture: user.profilePicture || '' } });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
